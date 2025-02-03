@@ -1799,17 +1799,56 @@ static struct proc * pick_proc(void)
    * If there are no processes ready to run, return NULL.
    */
   rdy_head = get_cpulocal_var(run_q_head);
-  for (q=0; q < NR_SCHED_QUEUES; q++) {	
-	if(!(rp = rdy_head[q])) {
-		TRACE(VF_PICKPROC, printf("cpu %d queue %d empty\n", cpuid, q););
-		continue;
-	}
-	assert(proc_is_runnable(rp));
-	if (priv(rp)->s_flags & BILLABLE)	 	
-		get_cpulocal_var(bill_ptr) = rp; /* bill for system time */
-	return rp;
+    
+  
+  /* Alterações para Loteria*/
+    
+  /* Conta a quantidade de bilhetes a serem distribuidos com base na prioridade das listas e a quantidade de processo nelas*/
+  int numrandom, bilhetes, i;
+  for (q=0, bilhetes=0; q < NR_SCHED_QUEUES-1;q++)
+      bilhetes += (nr_procs_rdy[q] * (NR_SCHED_QUEUES - 1 - q));
+    
+  /* Se não houver mais processos, então deve ir para a prioridade mais baixa direto */
+  if (bilhetes == 0)
+      rp = rdy_head[NR_SCHED_QUEUES-1];
+    
+  /* Agora iremos "sortear" a lista para o processo a ser realizado com base num número aleatório*/
+  /* O cálculo do numrandom como resto de um número aleatório divido pela quantidade de bilhetes garante que não vai ser um número aleatório muito exorbitante*/
+  else{
+      numrandom = (rand()%(bilhetes-1))+1;
+      
+      /* A quantidade de bilhetes em cada nível de prioridade é calculada com base na prioridade das listas e a quantidade de processo nelas*/
+      /* Quanto menor a prioridade, menor é a quantidade de bilhetes*/
+      for (q=0; q < NR_SCHED_QUEUES-1;q++){
+          bilhetes = (nr_procs_rdy[q] * (NR_SCHED_QUEUES - 1 - q));
+          
+          /* Sendo sorteadoo o ponteiro para o processo recebe a "cabeça" da lista*/
+          if (numrandom <= bilhetes){
+            rp = rdy_head[q];
+              
+            /* em seguida feito um laço dentro da lisa para sortear o processo*/
+            if(numrandom%(NR_SCHED_QUEUES -1 -q) == 0) i=1;
+            else i = 0;
+            for(; (rp != NIL_PROC) && (i < ((int)(numrandom/(NR_SCHED_QUEUES -1 -q)))); i++)
+                  rp = rp->p_nextready;
+          }
+          else{/*Se o a prioridade não é sorteada, como a seguinte terá menos bilhetes, então o numero aleatório deve ser diminuído*/
+              numrandom -= bilhetes;
+          }
+      }
   }
-  return NULL;
+  /* Se o ponteiro para o processo sorteado não for nulo ele é retornado para ser executado*/
+  if (rp != NIL_PROC){
+     assert(proc_is_runnable(rp));
+	 if (priv(rp)->s_flags & BILLABLE)	 	
+		get_cpulocal_var(bill_ptr) = rp; /* bill for system time */
+     return rp;
+  }
+  else {
+      kprintf(" erro inesperado.... rp==NIL_PROC");
+      return NULL;
+  }
+    
 }
 
 /*===========================================================================*
